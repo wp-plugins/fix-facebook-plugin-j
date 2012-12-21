@@ -4,7 +4,7 @@ Plugin Name: Fix Facebook Plugin J
 Plugin URI: http://blog1.dd-company.com/wordpress-plugin-page/fix-facebook-plugin-j/
 Description: "Fix Facebook Plugin J" is plugin for japanese language user, work well with WordPress plugin"Facebook" autogenerating Open Graph Protocol.
 Author: D&D Company
-Version: 0.0.1
+Version: 0.0.2
 Author URI: http://dd-company.com/
 */
 
@@ -29,47 +29,54 @@ Author URI: http://dd-company.com/
 
 
 /**
-*プラグイン Facebook for Wordpress の修正
-*package Facebook version 1.0.2向け
+*Fix Plug in 'Facebook for Wordpress'
+*for package Facebook version 1.1.10
 *
-*OGP metaタグの修正
-*locale を en_US から ja_JP
-*(fb-core.php 233行目のフィルターフック fb_locale にフック)
-*image の値は、キャッチ画像があればそれに、無くて、アップ画像があればそれを、無ければ、デフォルト画像を使用
-*published_time, modified_time を、修正
-*(fb-open-graph.php 161行目のフィルターフック fb_meta_tags にフック)
+*Fix OGP meta tag
+*#image value : catch image or attach image or default image
+*Fix published_time, modified_time
+*(hooking open-graph-protocol.php line 345 filter hook 'fb_meta_tags')
 */
 
-//locale修正
-add_filter('fb_locale','fbfixj_fix_locale');
 
-function fbfixj_fix_locale($locale){
-	return 'ja_JP';
-}
-
-//画像のプロパティ修正
+//Fix #image, #published_time, #modified_time
 add_filter('fb_meta_tags','fbfixj_fix_ogp',10,2);
 
 function fbfixj_fix_ogp($meta_tags,$post){
-	//locale修正
-//	$meta_tags['http://ogp.me/ns#locale'] = 'ja_JP';
 	$post_id = $post->ID;
-	$image = fbfixj_img_ogp($post_id);
-	//画像の設定値修正
-	$meta_tags['http://ogp.me/ns#image'] = array( $image );
-	//published_time, modified_time の修正
-	$meta_tags['http://ogp.me/ns/article#published_time'] = fbfixj_time_ogp($meta_tags['http://ogp.me/ns/article#published_time']);
-	$meta_tags['http://ogp.me/ns/article#modified_time'] = fbfixj_time_ogp($meta_tags['http://ogp.me/ns/article#modified_time']);
+	
+	//Fix #image propaty
+	//No image at Facebook plug inで
+	if(empty($meta_tags['http://ogp.me/ns#image'])){
+		$image = fbfixj_img_ogp($post_id,$meta_tags);
+		$meta_tags['http://ogp.me/ns#image'] = array( $image );
+	}
+	//画像が複数枚ある時、に最初の1枚だけにする (ギャラリー対応)
+	if(count($meta_tags['http://ogp.me/ns#image']) > 1){
+		$keys = array_keys($meta_tags['http://ogp.me/ns#image']);
+		$img_id = array_shift($keys);
+		$meta_tags['http://ogp.me/ns#image'] = array($meta_tags['http://ogp.me/ns#image'][$img_id]);
+	}
+	
+	//Fix #published_time, #modified_time
+	//タイムゾーン設定
+	if($meta_tags['http://ogp.me/ns/article#published_time']){
+		if(!get_option('fbfixj_time_zone')){
+			$fbfixj_time_zone = 'UTC';
+		}
+		else{
+			$fbfixj_time_zone = get_option('fbfixj_time_zone');
+		}
+		if(!date_default_timezone_set($fbfixj_time_zone)){
+			date_default_timezone_set('UTC');
+		}
+		$meta_tags['http://ogp.me/ns/article#published_time'] = date('c', strtotime($post->post_date));
+		$meta_tags['http://ogp.me/ns/article#modified_time'] = date('c', strtotime($post->post_modified));
+	}
 	
 	return $meta_tags;
 }
 
-//published_time, modified_time の修正
-function fbfixj_time_ogp($arg){
-	$pattern =  '/\+00:00$/';
-	$fix_time = preg_replace($pattern,'+0900',$arg);
-	return $fix_time;
-}
 
 //画像情報取得
 function fbfixj_img_ogp($id) {
@@ -168,14 +175,15 @@ Facebook for Wordpress プラグインが有効でないと正常に機能しま
 <ol>
 <li>
 &lt;meta property="http://ogp.me/ns#locale" content="xxx" /&gt; を書き換えます。<br />
-&lt;meta property="http://ogp.me/ns#locale" content="ja_JP" /&gt; にします。
+Facebook プラグインで対応した為、機能削除。
 </li>
 <li>
 &lt;meta property="http://ogp.me/ns#image" content="xxx" /&gt; xxx を書き換えます。
 <ol>
 <li type="a">
 個別記事ページ、固定ページの時<br />
-アイキャッチ画像が存在すればアイキャッチ画像のURLに書き換え、無ければ、添付画像のURLに書き換えます。<br />
+アイキャッチ画像が存在すればアイキャッチ画像のURLに書き換え、無ければ、添付画像の1枚目URLに書き換えます。<br />
+画像ギャラリーの時は、1枚目のURLに書き換えます。<br />
 どちらも存在しないときは、このページで設定したデフォルト画像のURLに書き換えます。
 </li>
 <li type="a">
@@ -192,7 +200,7 @@ Facebook for Wordpress プラグインが有効でないと正常に機能しま
 <li>
 &lt;meta property="http://ogp.me/ns/article#published_time" content="xxx" /&gt;<br />
 &lt;meta property="http://ogp.me/ns/article#modified_time" content="xxx" /&gt; を書き換えます。<br />
-+00:00 を +0900 に書き換えます。
++00:00 を time zone 設定に合わせて書き換えます。 (デフォルトは UTC)
 </li>
 </ol>
 <h3>設定</h3>
@@ -218,14 +226,22 @@ Facebook for Wordpress プラグインが有効でないと正常に機能しま
 <div>貼付画像とアイキャッチ画像のサイズを選択します。 (横幅200px以上になるようにして下さい。)</div>
 </td>
 </tr>
+<tr>
+<th><?php _e('time zone') ?></th>
+<td>
+<input type="text" name="fbfixj_time_zone" value="<?php if(get_option('fbfixj_time_zone')){echo get_option('fbfixj_time_zone');}else{echo 'UTC';} ?>" style="width:200px;" />
+<br />
+<div>タイムゾーンを記入します。 (例：Asia/Tokyo) <a href="http://php.net/manual/en/timezones.php" target="_blank">タイムゾーン一覧</a></div>
+</td>
+</tr>
 </table>
  
 <!--ここのhiddenも必ず入れてください。複数あるときは、page_optionsは半角カンマで区切って記述。a,b,c　など-->
 <input type="hidden" name="action" value="update" />
-<input type="hidden" name="page_options" value="default_img,img_size" />
+<input type="hidden" name="page_options" value="default_img,img_size,fbfixj_time_zone" />
 <p class="submit">
  
-<!--SUBMITは英語で表記。_eで翻訳されるんです。便利！-->
+<!--SUBMITは英語で表記。_eで翻訳-->
 <input type="submit" class="button-primary" value="<?php _e('Save Changes') ?>" />
 </p>
 </form>
